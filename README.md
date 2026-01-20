@@ -2,6 +2,8 @@
 
 A privacy-friendly, mobile-first tool to analyze your Instagram chat history. Built with [Streamlit](https://streamlit.io/).
 
+![App Dashboard](dashboard.png)
+
 ## 🚀 Features
 
 - **Privacy First**: Analysis runs locally in your browser. No data is uploaded to any server.
