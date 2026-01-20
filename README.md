@@ -1,5 +1,7 @@
 # 📊 Instagram Chat Analyzer
 
+**[Live Demo](https://insta-chat-analyzer-plot.streamlit.app/)**
+
 A privacy-friendly, mobile-first tool to analyze your Instagram chat history. Built with [Streamlit](https://streamlit.io/).
 
 ![App Dashboard](dashboard.png)
