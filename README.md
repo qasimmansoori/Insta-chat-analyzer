@@ -1,8 +1,10 @@
 # 📊 Instagram Chat Analyzer
 
+**[Live Demo](https://insta-chat-analyzer-plot.streamlit.app/)**
+
 > **Visualize your Instagram conversations with beautiful, interactive charts.**
 
-A privacy-focused tool that transforms your Instagram chat history into insightful visualizations. Built with [Streamlit](https://streamlit.io/) and [Plotly](https://plotly.com/).
+A privacy-focused tool that transforms your Instagram chat history into insightful visualizations. Built with Streamlit and Plotly.
 
 ## ✨ Key Features
 
