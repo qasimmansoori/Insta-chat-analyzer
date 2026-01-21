@@ -60,11 +60,18 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-def get_messages_dictionary(uploaded_files):
+def get_messages_dictionary(uploaded_files, include_reels=False):
     if not uploaded_files:
         return []
 
     messages = []
+    
+    # List of known reaction patterns to exclude
+    REACTION_PATTERNS = [
+        "Reacted", "Liked a message", "Loved a message", 
+        "Emphasized a message", "Laughed at a message", 
+        "Questioned a message", "Disliked a message"
+    ]
     
     for uploaded_file in uploaded_files:
         try:
@@ -74,21 +81,42 @@ def get_messages_dictionary(uploaded_files):
             message_blocks = soup.select('div.pam.uiBoxWhite.noborder')
             
             for msg in message_blocks:
-                text = msg.get_text(" ", strip=True)
-
-                if ("Reacted" in text and "to your message" in text) or msg.find('a'):
-                    continue
-
                 name_tag = msg.find('h2')
                 message_tag = msg.find('div', class_='_3-95 _a6-p')
                 time_tag = msg.find('div', class_='_3-94 _a6-o')
 
                 if not (name_tag and message_tag and time_tag):
                     continue
+                
+                # Extract text content
+                text_content = message_tag.get_text(" ", strip=True)
+                
+                # STRICT REACTION FILTERING
+                # Check if the message is just a reaction notification
+                is_reaction = any(pattern in text_content for pattern in REACTION_PATTERNS)
+                if is_reaction:
+                    continue
+
+                # REELS / ATTACHMENTS HANDLING
+                has_link = message_tag.find('a') is not None
+                is_attachment_text = "sent an attachment" in text_content or "shared a reel" in text_content
+                
+                if (has_link or is_attachment_text):
+                    if not include_reels:
+                        continue
+                    # If including reels, try to get the link text or formatting
+                    if has_link:
+                         link_tag = message_tag.find('a')
+                         # Use the link content or generic text
+                         msg_text = f"Attachment: {link_tag.get_text()}" 
+                    else:
+                         msg_text = text_content
+                else:
+                    msg_text = text_content
 
                 messages.append({
                     'name': name_tag.get_text(strip=True),
-                    'message': message_tag.get_text(strip=True),
+                    'message': msg_text,
                     'time': time_tag.get_text(strip=True)
                 })
         except Exception as e:
@@ -144,9 +172,11 @@ uploaded_files = st.file_uploader(
     accept_multiple_files=True
 )
 
+include_reels = st.toggle("Include Reels, Posts & Attachments 📸", value=False)
+
 if uploaded_files:
     with st.spinner("Parsing messages..."):
-        messages = get_messages_dictionary(uploaded_files)
+        messages = get_messages_dictionary(uploaded_files, include_reels)
         
     if messages:
         st.success(f"Successfully loaded {len(messages)} messages!")
@@ -250,40 +280,39 @@ if uploaded_files:
             
             st.subheader("Activity Heatmap (Weekly)")
             
-            # Prepare data for vertical heatmap (Weeks as rows, Months as columns)
-            # Logic: X = Month, Y = Week order in that month (1st week, 2nd week...)
+          
             df_heat = df.copy()
             
-            # Group by week first to get totals
+     
             weekly_data = df_heat.set_index('time').resample('W-MON').size().reset_index(name='count')
             
-            # Extract month and "week within month" index
+           
             weekly_data['month_date'] = weekly_data['time'].dt.to_period('M').apply(lambda r: r.start_time)
             
-            # Calculate week rank within each month (Week 1, Week 2, etc.)
+  
             weekly_data['week_rank'] = weekly_data.groupby('month_date').cumcount() + 1
             
-            # Merge Week 5 (or more) into Week 4
+        
             weekly_data.loc[weekly_data['week_rank'] > 4, 'week_rank'] = 4
             
-            # Recalculate counts after merging weeks
+    
             weekly_data = weekly_data.groupby(['month_date', 'week_rank'])['count'].sum().reset_index()
             
-            # Filter for last 12 months for cleaner view
+            
             last_year = weekly_data['month_date'].max() - pd.DateOffset(months=11)
             weekly_data = weekly_data[weekly_data['month_date'] >= last_year]
             
-            # Pivot: Rows (Y) = Week Rank, Columns (X) = Month
+           
             heatmap_pivot = weekly_data.pivot(index='week_rank', columns='month_date', values='count').fillna(0)
             
-            # Ensure we strictly have 4 rows
+           
             heatmap_pivot = heatmap_pivot.reindex(range(1, 5), fill_value=0)
             
-            # Formate X-axis labels
+           
             x_labels = [d.strftime('%b') for d in heatmap_pivot.columns]
             y_labels = ['Week 1', 'Week 2', 'Week 3', 'Week 4']
             
-            # Calculate dynamic zmax
+         
             max_val = heatmap_pivot.values.max()
             z_max = max(max_val, 10)
             
@@ -301,7 +330,7 @@ if uploaded_files:
             ))
             fig_heat.update_layout(
                 template=template,
-                height=220, # Height for 4 rows
+                height=220, 
                 xaxis=dict(side='top', showgrid=False, tickangle=0),
                 yaxis=dict(showgrid=False, autorange='reversed', tickfont=dict(size=10)),
                 margin=dict(l=50, r=20, t=50, b=20)
