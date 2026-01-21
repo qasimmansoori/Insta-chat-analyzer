@@ -248,33 +248,44 @@ if uploaded_files:
                 fig_month.update_traces(marker_color='#a78bfa')
                 st.plotly_chart(fig_month, use_container_width=True)
             
-            st.subheader("Activity Heatmap")
+            st.subheader("Activity Heatmap (Weekly)")
             
+            # Prepare data for vertical heatmap (Weeks as rows, Months as columns)
+            # Logic: X = Month, Y = Week order in that month (1st week, 2nd week...)
             df_heat = df.copy()
-            df_heat['week_start'] = df_heat['time'].dt.to_period('W-MON').apply(lambda r: r.start_time)
-            df_heat['weekday'] = df_heat['time'].dt.dayofweek
             
-            heatmap_pivot = df_heat.groupby(['weekday', 'week_start']).size().unstack(fill_value=0)
+            # Group by week first to get totals
+            weekly_data = df_heat.set_index('time').resample('W-MON').size().reset_index(name='count')
             
-            if heatmap_pivot.shape[1] > 52:
-                 heatmap_pivot = heatmap_pivot.iloc[:, -52:]
+            # Extract month and "week within month" index
+            weekly_data['month_date'] = weekly_data['time'].dt.to_period('M').apply(lambda r: r.start_time)
             
-            heatmap_pivot = heatmap_pivot.reindex(range(7), fill_value=0)
+            # Calculate week rank within each month (Week 1, Week 2, etc.)
+            weekly_data['week_rank'] = weekly_data.groupby('month_date').cumcount() + 1
             
-            # Create labels
-            week_cols = heatmap_pivot.columns
-            x_labels = []
-            last_month = None
-            for d in week_cols:
-                m = d.strftime('%b')
-                if m != last_month:
-                    x_labels.append(m)
-                    last_month = m
-                else:
-                    x_labels.append('')
-
-            # Y-axis labels: Show all days
-            y_labels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+            # Merge Week 5 (or more) into Week 4
+            weekly_data.loc[weekly_data['week_rank'] > 4, 'week_rank'] = 4
+            
+            # Recalculate counts after merging weeks
+            weekly_data = weekly_data.groupby(['month_date', 'week_rank'])['count'].sum().reset_index()
+            
+            # Filter for last 12 months for cleaner view
+            last_year = weekly_data['month_date'].max() - pd.DateOffset(months=11)
+            weekly_data = weekly_data[weekly_data['month_date'] >= last_year]
+            
+            # Pivot: Rows (Y) = Week Rank, Columns (X) = Month
+            heatmap_pivot = weekly_data.pivot(index='week_rank', columns='month_date', values='count').fillna(0)
+            
+            # Ensure we strictly have 4 rows
+            heatmap_pivot = heatmap_pivot.reindex(range(1, 5), fill_value=0)
+            
+            # Formate X-axis labels
+            x_labels = [d.strftime('%b') for d in heatmap_pivot.columns]
+            y_labels = ['Week 1', 'Week 2', 'Week 3', 'Week 4']
+            
+            # Calculate dynamic zmax
+            max_val = heatmap_pivot.values.max()
+            z_max = max(max_val, 10)
             
             fig_heat = go.Figure(data=go.Heatmap(
                 z=heatmap_pivot.values,
@@ -282,17 +293,18 @@ if uploaded_files:
                 y=y_labels,
                 colorscale=[[0, '#161b22'], [0.2, '#0e4429'], [0.4, '#006d32'], [0.6, '#26a641'], [0.8, '#39d353'], [1, '#39d353']],
                 showscale=False,
-                xgap=2,
-                ygap=2,
-                hovertemplate='Messages: %{z}<extra></extra>'
+                zmin=0,
+                zmax=z_max,
+                hovertemplate='Month: %{x}<br>%{y}: %{z} messages<extra></extra>',
+                xgap=3,
+                ygap=3
             ))
-            
             fig_heat.update_layout(
                 template=template,
-                height=200,  # Increased height slightly for all labels
-                margin=dict(l=30, r=20, t=20, b=20),
-                xaxis=dict(side='top', tickangle=0, showgrid=False, fixedrange=True),
-                yaxis=dict(autorange='reversed', showgrid=False, fixedrange=True)
+                height=220, # Height for 4 rows
+                xaxis=dict(side='top', showgrid=False, tickangle=0),
+                yaxis=dict(showgrid=False, autorange='reversed', tickfont=dict(size=10)),
+                margin=dict(l=50, r=20, t=50, b=20)
             )
             st.plotly_chart(fig_heat, use_container_width=True)
 
