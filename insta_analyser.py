@@ -129,13 +129,13 @@ st.write("Visualize your Instagram chat history in seconds!")
 
 with st.expander("📥 How to get your Instagram chat files? (Click to Expand)", expanded=False):
     st.markdown("""
-    1. Go to **Instagram Settings** -> **Your Information and Permissions**.
-    2. Select **Download Your Information**.
-    3. Choose **Download or transfer information** -> Select focus on **Messages**.
+    1. Go to **Instagram Settings** → **Account Center** → **Your Information and Permissions**.
+    2. Select **Export Your Information**.
+    3. Choose **Create Export** → Select Account → **Export to device**.
     4. **Format**: Choose **HTML** (Crucial!) and Download to device.
     5. Wait for the email.
-    6. Download zip, extract, find `messages/inbox/`.
-    7. Upload `message_1.html` files below.
+    6. After receiving the email, go back to settings export page and download your information.
+    7. Download the zip file, extract it, and find `your_instagram_activity/messages/inbox/[chat_you_want_to_analyze]`. Inside there will be HTML files that you need to upload here.
     """)
 
 uploaded_files = st.file_uploader(
@@ -216,35 +216,27 @@ if uploaded_files:
 
             with col3:
                 st.subheader("Activity by Hour")
-                hour_counts = df['hour'].value_counts().reindex(range(24), fill_value=0).reset_index()
+                hour_counts = df['hour'].value_counts().reindex(range(24), fill_value=0).sort_index().reset_index()
                 hour_counts.columns = ['hour', 'count']
                 hour_counts['hour_label'] = hour_counts['hour'].apply(hour_label_12h)
-                hour_counts['hour_label'] = pd.Categorical(hour_counts['hour_label'], categories=[hour_label_12h(h) for h in range(24)], ordered=True)
                 
                 fig_hour = px.bar(hour_counts, x='hour_label', y='count', template=template)
                 fig_hour.update_traces(marker_color='#34d399', hovertemplate='%{x}: %{y} msgs')
+                fig_hour.update_xaxes(categoryorder='array', categoryarray=[hour_label_12h(h) for h in range(24)])
                 st.plotly_chart(fig_hour, use_container_width=True)
 
             col4, col5 = st.columns(2)
 
             with col4:
-                st.subheader("Weekly Trend")
+                st.subheader("Weekly Activity")
                 df_idx = df.set_index('time')
-                weekly_all = df_idx.groupby('name').resample('W-MON').size().reset_index(name='count')
-                top_senders = sender_counts['name'].head(5).tolist()
-                weekly_top = weekly_all[weekly_all['name'].isin(top_senders)].copy()
-                weekly_pivot = weekly_top.pivot(index='time', columns='name', values='count').fillna(0)
+                weekly_total = df_idx.resample('W-MON').size().reset_index(name='count')
+                weekly_total.columns = ['week', 'count']
                 
-                if not weekly_pivot.empty:
-                    fig_weekly = go.Figure()
-                    color_seq = px.colors.qualitative.Pastel
-                    for i, sender in enumerate(weekly_pivot.columns):
-                        fig_weekly.add_trace(go.Scatter(
-                            x=weekly_pivot.index, y=weekly_pivot[sender],
-                            mode='lines+markers', name=sender,
-                            line=dict(width=2), marker=dict(size=5)
-                        ))
-                    fig_weekly.update_layout(template=template, hovermode="x unified")
+                if not weekly_total.empty:
+                    fig_weekly = px.bar(weekly_total, x='week', y='count', template=template)
+                    fig_weekly.update_traces(marker_color='#60a5fa', hovertemplate='%{y} messages')
+                    fig_weekly.update_layout(xaxis_title="Week", yaxis_title="Messages")
                     st.plotly_chart(fig_weekly, use_container_width=True)
                 else:
                     st.write("Not enough data for trend.")
@@ -256,18 +248,52 @@ if uploaded_files:
                 fig_month.update_traces(marker_color='#a78bfa')
                 st.plotly_chart(fig_month, use_container_width=True)
             
-            st.subheader("Daily Activity Heatmap")
-            monthly_pivot = df.groupby(['day', 'month']).size().unstack(fill_value=0)
-            all_days = pd.Index(range(1,32), name='day')
-            monthly_pivot = monthly_pivot.reindex(all_days, fill_value=0)
-            month_cols = sorted(monthly_pivot.columns, key=lambda x: pd.to_datetime(x + '-01'))
-            monthly_pivot = monthly_pivot[month_cols]
+            st.subheader("Activity Heatmap")
+            
+            df_heat = df.copy()
+            df_heat['week_start'] = df_heat['time'].dt.to_period('W-MON').apply(lambda r: r.start_time)
+            df_heat['weekday'] = df_heat['time'].dt.dayofweek
+            
+            heatmap_pivot = df_heat.groupby(['weekday', 'week_start']).size().unstack(fill_value=0)
+            
+            if heatmap_pivot.shape[1] > 52:
+                 heatmap_pivot = heatmap_pivot.iloc[:, -52:]
+            
+            heatmap_pivot = heatmap_pivot.reindex(range(7), fill_value=0)
+            
+            # Create labels
+            week_cols = heatmap_pivot.columns
+            x_labels = []
+            last_month = None
+            for d in week_cols:
+                m = d.strftime('%b')
+                if m != last_month:
+                    x_labels.append(m)
+                    last_month = m
+                else:
+                    x_labels.append('')
+
+            # Y-axis labels: Show all days
+            y_labels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
             
             fig_heat = go.Figure(data=go.Heatmap(
-                z=monthly_pivot.values, x=monthly_pivot.columns.tolist(), y=monthly_pivot.index.tolist(),
-                colorscale='Viridis', colorbar=dict(title='Msgs')
+                z=heatmap_pivot.values,
+                x=x_labels,
+                y=y_labels,
+                colorscale=[[0, '#161b22'], [0.2, '#0e4429'], [0.4, '#006d32'], [0.6, '#26a641'], [0.8, '#39d353'], [1, '#39d353']],
+                showscale=False,
+                xgap=2,
+                ygap=2,
+                hovertemplate='Messages: %{z}<extra></extra>'
             ))
-            fig_heat.update_layout(template=template, height=400)
+            
+            fig_heat.update_layout(
+                template=template,
+                height=200,  # Increased height slightly for all labels
+                margin=dict(l=30, r=20, t=20, b=20),
+                xaxis=dict(side='top', tickangle=0, showgrid=False, fixedrange=True),
+                yaxis=dict(autorange='reversed', showgrid=False, fixedrange=True)
+            )
             st.plotly_chart(fig_heat, use_container_width=True)
 
     else:
